@@ -6,7 +6,7 @@ from typing import List, Tuple
 import torch
 import yaml
 
-from guidance import GuideDict, GuideList
+from guidance import GuideMap
 
 
 @dataclass
@@ -91,7 +91,7 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
 
     parser.add_argument("--prompt", type=str)
     parser.add_argument("--negative_prompt", type=str, default="")
-    parser.add_argument("--guide", type=str, choices=GuideList, default="IFGuide")
+    parser.add_argument("--guide", type=str, choices=GuideMap.keys(), default="IFGuide")
     parser.add_argument("--iterations", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--eps", type=float, default=1e-8)
@@ -145,7 +145,7 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
     return Config(
         prompt=args.prompt,
         negative_prompt=args.negative_prompt,
-        guide=GuideDict[args.guide],
+        guide=GuideMap[args.guide],
         iterations=args.iterations,
         lr=args.lr,
         eps=args.eps,
