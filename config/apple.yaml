@@ -2,9 +2,9 @@ prompt: An apple
 negative_prompt: cropped, out of frame, morbid, mutilated, bizarre, corrupted, malformed, low quality, artifacts, watermark, signature
 guide: IFGuide
 iterations: 30000
-lr: 1e-4
+lr: 3e-4
 eps: 1e-4
-weight_decay: 0.2
+weight_decay: 0.1
 guidance_scale: 100
 t_range: [0.02, 0.98]
 theta_range: [0, 360]

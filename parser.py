@@ -133,14 +133,20 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
 
     # Make save directories
     output_path = Path(args.output_path)
-    output_path.mkdir(parents=True, exist_ok=True)
-    (output_path / "weights").mkdir(exist_ok=True)
-    (output_path / "images").mkdir(exist_ok=True)
+    output_path.mkdir(parents=True)
+    (output_path / "weights").mkdir()
+    (output_path / "images").mkdir()
 
     # Dump config to yaml
     with open(output_path / "config.yaml", "w") as file:
         args.__dict__.pop("yaml", None)
-        yaml.dump(args.__dict__, file)
+        yaml.dump(
+            args.__dict__,
+            file,
+            width=None,
+            sort_keys=False,
+            default_flow_style=None,
+        )
 
     return Config(
         prompt=args.prompt,
