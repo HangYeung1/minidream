@@ -12,8 +12,7 @@ class BaseGuide(nn.Module, ABC):
 
     Attributes:
         embeds (dict[str, torch.Tensor]): Dictionary of text embeddings.
-        min_step (int): Minimum diffusion timestep.
-        max_step (int): Maximum diffusion timestep.
+        t_range (Tuple[float, float]): Diffusion t-range range.
         train_shape (Tuple[int, int, int]): Training tensor shape.
         guidance_scale (float): Classifier-free guidance weight.
         tokenizer (PreTrainedTokenizer): Diffuser's Tokenizer.
@@ -55,6 +54,7 @@ class BaseGuide(nn.Module, ABC):
         self.device = device
         self.dtype = dtype
 
+        self.t_range = t_range
         self.guidance_scale = guidance_scale
         self.train_shape = train_shape
 
@@ -63,10 +63,6 @@ class BaseGuide(nn.Module, ABC):
         self.text_encoder = text_encoder
         self.scheduler = scheduler
         self.alphas = self.scheduler.alphas_cumprod.to(self.device)
-
-        num_train_steps = self.scheduler.config.num_train_timesteps
-        step_range = [int(t * num_train_steps) for t in t_range]
-        self.min_step, self.max_step = step_range
 
         # Make prompt embeddings
         self.embeds = {
@@ -93,9 +89,14 @@ class BaseGuide(nn.Module, ABC):
         N, _, _, _ = training.shape
 
         # Add noise
-        timesteps = torch.randint(
-            self.min_step, self.max_step + 1, (N,), device=self.device
-        )
+        timesteps = (
+            (
+                torch.rand((N,), device=self.device)
+                * (self.t_range[1] - self.t_range[0])
+                + self.t_range[0]
+            )
+            * self.scheduler.config.num_train_timesteps
+        ).to(torch.int)
         noise = torch.randn_like(training, device=self.device)
         train_noisy = self.scheduler.add_noise(training, noise, timesteps)
 
@@ -144,7 +145,7 @@ class BaseGuide(nn.Module, ABC):
     def predict_cfg_noise(
         self,
         train_noisy: torch.Tensor,
-        timesteps: torch.IntTensor,
+        timesteps: torch.Tensor,
         pos_embeds: torch.Tensor,
         neg_embeds: torch.Tensor,
     ) -> torch.Tensor:

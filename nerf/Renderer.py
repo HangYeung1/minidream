@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import cv2
 import numpy as np
 import torch
@@ -9,32 +11,28 @@ from .NeRF import NeRF
 class Renderer(nn.Module):
     def __init__(
         self,
-        height: int,
-        width: int,
-        near: float,
-        far: float,
+        dims: Tuple[int, int],
+        sample_range: Tuple[float, float],
         num_samples: int,
         device: torch.device,
         dtype: torch.dtype,
     ):
-        """Initialize rendering charateristics."""
+        """Initialize rendering characteristics."""
 
         super().__init__()
 
-        self.height = height
-        self.width = width
-        self.near = near
-        self.far = far
+        self.dims = dims
+        self.sample_range = sample_range
         self.num_samples = num_samples
         self.device = device
         self.dtype = dtype
 
-    @torch.no_grad
+    @torch.no_grad()
     def get_pose(
         self,
-        theta_deg: float | torch.Tensor,
-        phi_deg: float | torch.Tensor,
-        radius: float | torch.Tensor,
+        theta_deg: float,
+        phi_deg: float,
+        radius: float,
     ):
         """Calculate OpenGL style camera pose."""
 
@@ -59,14 +57,14 @@ class Renderer(nn.Module):
         pose = torch.cat([rotation, position.unsqueeze(1)], dim=1)
         return pose
 
-    @torch.no_grad
+    @torch.no_grad()
     def get_rays(self, focal: float, pose: torch.Tensor):
         """Get raymarching info."""
 
         # Make pixel grid
         x, y = torch.meshgrid(
-            torch.arange(self.width, dtype=torch.float32, device=self.device),
-            torch.arange(self.height, dtype=torch.float32, device=self.device),
+            torch.arange(self.dims[1], dtype=self.dtype, device=self.device),
+            torch.arange(self.dims[0], dtype=self.dtype, device=self.device),
             indexing="xy",
         )
 
@@ -74,8 +72,8 @@ class Renderer(nn.Module):
         directions = (
             torch.stack(
                 [
-                    (x - self.width / 2) / focal,
-                    -(y - self.height / 2) / focal,
+                    (x - self.dims[1] / 2) / focal,
+                    -(y - self.dims[0] / 2) / focal,
                     -torch.ones_like(x, device=self.device),
                 ],
                 dim=-1,
@@ -91,21 +89,20 @@ class Renderer(nn.Module):
 
         # Get random t's from intervals
         bins = torch.linspace(
-            self.near,
-            self.far,
+            self.sample_range[0],
+            self.sample_range[1],
             self.num_samples + 1,
-            dtype=self.dtype,
             device=self.device,
         )
         bin_size = bins[1] - bins[0]
         t = bins[:-1] + bin_size * torch.rand(
-            (self.height, self.width, self.num_samples),
+            (self.dims[0], self.dims[1], self.num_samples),
             dtype=self.dtype,
             device=self.device,
         )
 
         # Get point info from each ray
-        # Janky chunk to prevent another bluescreen
+        # Chunk to save memory
         origin, directions = self.get_rays(focal, pose)
         points = origin + directions.unsqueeze(-2) * t.unsqueeze(-1)
 
@@ -113,7 +110,7 @@ class Renderer(nn.Module):
         points_chunks = points.view(-1, 3).chunk(num_chunks)
         rgb_s_chunks = [nerf(chunk) for chunk in points_chunks]
         rgb_s = torch.cat(rgb_s_chunks).view(
-            self.height, self.width, self.num_samples, 4
+            self.dims[0], self.dims[1], self.num_samples, 4
         )
 
         rgb = rgb_s[..., :3]
@@ -124,7 +121,7 @@ class Renderer(nn.Module):
         deltas = torch.cat(
             (
                 t[..., 1:] - t[..., :-1],
-                torch.full_like(t[..., :1], inf, dtype=self.dtype, device=self.device),
+                torch.full_like(t[..., :1], inf, device=self.device),
             ),
             dim=-1,
         )
@@ -138,12 +135,12 @@ class Renderer(nn.Module):
         weights = alpha * transmits
 
         # Weigh color/depth contribution
-        rgb_matrix = torch.sum(weights.unsqueeze(-1) * rgb, dim=-2)
+        rgb_matrix = torch.clip(torch.sum(weights.unsqueeze(-1) * rgb, dim=-2), max=1.0)
         depth_matrix = torch.sum(weights * t, dim=-1)
 
         return rgb_matrix, depth_matrix
 
-    @torch.no_grad
+    @torch.no_grad()
     def render_video(
         self,
         nerf: NeRF,
@@ -156,7 +153,7 @@ class Renderer(nn.Module):
             output_path,
             cv2.VideoWriter_fourcc(*"H264"),
             frame_rate,
-            (self.width, self.height),
+            self.dims,
         )
 
         for i in range(0, 360, 5):
