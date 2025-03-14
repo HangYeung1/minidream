@@ -19,13 +19,15 @@ class Config:
         guide (GuideType): Guidance model class.
         iterations (int): Number of training iterations.
         lr (float): Adam learning rate.
+        eps (float): Adam epsilon.
         weight_decay (float): Adam weight decay rate.
         guidance_scale (float): Classifier-free guidance weight.
         t_range (Tuple[float, float]): Diffusion sampling interval.
         theta_range (Tuple[float, float]): Render azimuth interval.
         phi_range (Tuple[float, float]): Render zenith interval.
         focal_range (Tuple[float, float]): Render focal length interval.
-        dist_range (Tuple[float, float]): Render distance interval.
+        radius_range (Tuple[float, float]): Render radius interval.
+        sample_range (Tuple[float, float]): Render sample interval.
         render_dims (Tuple[int, int]): Render resolution.
         render_samples (int): Number of samples per render.
         output_path (Path): File output path.
@@ -39,13 +41,15 @@ class Config:
     guide: type
     iterations: int
     lr: float
+    eps: float
     weight_decay: float
     guidance_scale: float
     t_range: Tuple[float, float]
-    theta_range: Tuple[float, float, float]
+    theta_range: Tuple[float, float]
     phi_range: Tuple[float, float]
     focal_range: Tuple[float, float]
-    dist_range: Tuple[float, float]
+    radius_range: Tuple[float, float]
+    sample_range: Tuple[float, float]
     render_dims: Tuple[int, int]
     render_samples: int
     output_path: Path
@@ -90,13 +94,15 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
     parser.add_argument("--guide", type=str, choices=GuideList, default="IFGuide")
     parser.add_argument("--iterations", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--eps", type=float, default=1e-8)
     parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--guidance_scale", type=float, default=100)
     parser.add_argument("--t_range", type=float, nargs=2, default=[0.02, 0.98])
     parser.add_argument("--theta_range", type=float, nargs=2, default=[0, 360])
     parser.add_argument("--phi_range", type=float, nargs=2, default=[0, 100])
     parser.add_argument("--focal_range", type=float, nargs=2, default=[0.7, 1.35])
-    parser.add_argument("--dist_range", type=float, nargs=2, default=[2, 8])
+    parser.add_argument("--radius_range", type=float, default=[4, 4.15])
+    parser.add_argument("--sample_range", type=float, nargs=2, default=[2, 8])
     parser.add_argument("--render_dims", type=int, nargs=2, default=[64, 64])
     parser.add_argument("--render_samples", type=int, default=64)
     parser.add_argument("--output_path", type=str, default="output")
@@ -140,13 +146,15 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
         guide=GuideDict[args.guide],
         iterations=args.iterations,
         lr=args.lr,
+        eps=args.eps,
         weight_decay=args.weight_decay,
         guidance_scale=args.guidance_scale,
         t_range=tuple(args.t_range),
         theta_range=tuple(args.theta_range),
         phi_range=tuple(args.phi_range),
         focal_range=tuple(args.focal_range),
-        dist_range=tuple(args.dist_range),
+        radius_range=tuple(args.radius_range),
+        sample_range=tuple(args.sample_range),
         render_dims=tuple(args.render_dims),
         render_samples=args.render_samples,
         output_path=Path(args.output_path),
