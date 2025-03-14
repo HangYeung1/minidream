@@ -20,9 +20,7 @@ def train(config: Config) -> None:
     """
 
     nerf = NeRF(
-        config.render_dims,
         config.sample_range,
-        config.render_samples,
         config.device,
     )
     guide = config.guide(
@@ -40,15 +38,24 @@ def train(config: Config) -> None:
         weight_decay=config.weight_decay,
     )
 
-    for i in tqdm(range(1, config.iterations + 1), "Training model..."):
+    for i in tqdm(range(1, config.iterations + 1), "Training..."):
         # Render random image
         theta = sample_from_range(config.theta_range).item()
         phi = sample_from_range(config.phi_range).item()
         radius = sample_from_range(config.radius_range).item()
-        focal = (sample_from_range(config.focal_range) * config.render_dims[1]).item()
+        focal = (
+            sample_from_range(config.focal_range) * config.train_render_dims[1]
+        ).item()
 
         rgb = (
-            nerf.render(theta, phi, radius, focal)[0]
+            nerf.render(
+                theta,
+                phi,
+                radius,
+                focal,
+                config.train_render_dims,
+                config.train_render_samples,
+            )[0]
             .permute(2, 0, 1)
             .unsqueeze(0)
             .to(config.dtype)
@@ -68,7 +75,9 @@ def train(config: Config) -> None:
                     0,
                     75,
                     sum(config.radius_range) / 2,
-                    sum(config.focal_range) / 2 * config.render_dims[1],
+                    (sum(config.focal_range) / 2) * config.check_render_dims[1],
+                    config.check_render_dims,
+                    config.check_render_samples,
                 )
 
                 test_rgb = test_rgb.cpu()
@@ -90,7 +99,9 @@ def train(config: Config) -> None:
     # Render final video
     nerf.render_video(
         str(config.output_path / "video.mp4"),
-        10,
+        config.check_frame_rate,
         sum(config.radius_range) / 2,
-        sum(config.focal_range) / 2 * config.render_dims[1],
+        (sum(config.focal_range) / 2) * config.check_render_dims[1],
+        config.check_render_dims,
+        config.check_render_samples,
     )

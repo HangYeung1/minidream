@@ -11,18 +11,14 @@ from .NeRFNetwork import NeRFNetwork
 class NeRF(nn.Module):
     def __init__(
         self,
-        dims: Tuple[int, int],
         sample_range: Tuple[float, float],
-        num_samples: int,
         device: torch.device,
     ):
         """Initialize rendering characteristics."""
 
         super().__init__()
 
-        self.dims = dims
         self.sample_range = sample_range
-        self.num_samples = num_samples
         self.device = device
 
         self.network = NeRFNetwork().to(self.device)
@@ -59,14 +55,14 @@ class NeRF(nn.Module):
 
     @torch.no_grad()
     def get_rays(
-        self, focal: float, pose: torch.Tensor
+        self, focal: float, pose: torch.Tensor, dims: Tuple[int, int]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get raymarching info."""
 
         # Make pixel grid
         x, y = torch.meshgrid(
-            torch.arange(self.dims[1], device=self.device),
-            torch.arange(self.dims[0], device=self.device),
+            torch.arange(dims[1], device=self.device),
+            torch.arange(dims[0], device=self.device),
             indexing="xy",
         )
 
@@ -74,8 +70,8 @@ class NeRF(nn.Module):
         directions = (
             torch.stack(
                 [
-                    (x - self.dims[1] / 2) / focal,
-                    -(y - self.dims[0] / 2) / focal,
+                    (x - dims[1] / 2) / focal,
+                    -(y - dims[0] / 2) / focal,
                     -torch.ones_like(x, device=self.device),
                 ],
                 dim=-1,
@@ -87,11 +83,14 @@ class NeRF(nn.Module):
         return origin, directions
 
     def render(
-        self, theta: float, phi: float, radius: float, focal: float
-    ) -> Tuple[
-        torch.Tensor,
-        torch.Tensor,
-    ]:
+        self,
+        theta: float,
+        phi: float,
+        radius: float,
+        focal: float,
+        dims: Tuple[int, int],
+        num_samples: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Render image given position."""
 
         pose = self.get_pose(theta, phi, radius).to(self.device)
@@ -100,26 +99,24 @@ class NeRF(nn.Module):
         bins = torch.linspace(
             self.sample_range[0],
             self.sample_range[1],
-            self.num_samples + 1,
+            num_samples + 1,
             device=self.device,
         )
         bin_size = bins[1] - bins[0]
         t = bins[:-1] + bin_size * torch.rand(
-            (self.dims[0], self.dims[1], self.num_samples),
+            (dims[0], dims[1], num_samples),
             device=self.device,
         )
 
         # Get point info from each ray
         # Chunk to save memory
-        origin, directions = self.get_rays(focal, pose)
+        origin, directions = self.get_rays(focal, pose, dims)
         points = origin + directions.unsqueeze(-2) * t.unsqueeze(-1)
 
         num_chunks = int(points.numel() / (3 * 2**15))
         points_chunks = points.view(-1, 3).chunk(num_chunks)
         rgb_s_chunks = [self.network(chunk) for chunk in points_chunks]
-        rgb_s = torch.cat(rgb_s_chunks).view(
-            self.dims[0], self.dims[1], self.num_samples, 4
-        )
+        rgb_s = torch.cat(rgb_s_chunks).view(dims[0], dims[1], num_samples, 4)
 
         rgb = rgb_s[..., :3]
         sigmas = rgb_s[..., -1]
@@ -155,17 +152,20 @@ class NeRF(nn.Module):
         frame_rate: int,
         radius: float,
         focal: float,
+        dims: Tuple[int, int],
+        num_samples: int,
     ) -> None:
-        """Save 360 video of nerf."""
+        """Save five second 360 video of nerf."""
         out = cv2.VideoWriter(
             output_path,
-            cv2.VideoWriter_fourcc(*"H264"),
+            cv2.VideoWriter_fourcc(*"avc1"),
             frame_rate,
-            self.dims,
+            dims,
         )
 
-        for i in range(0, 360, int(360 // (frame_rate / 5))):
-            rgb, _ = self.render(i, 75, radius, focal)
+        assert 360 % (frame_rate * 5) == 0
+        for i in range(0, 360, int(360 // (frame_rate * 5))):
+            rgb, _ = self.render(i, 75, radius, focal, dims, num_samples)
             out.write(
                 cv2.cvtColor(
                     (rgb * 255).cpu().numpy().astype(np.uint8),

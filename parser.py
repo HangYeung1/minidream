@@ -28,8 +28,11 @@ class Config:
         focal_range (Tuple[float, float]): Render focal length interval.
         radius_range (Tuple[float, float]): Render radius interval.
         sample_range (Tuple[float, float]): Render sample interval.
-        render_dims (Tuple[int, int]): Render resolution.
-        render_samples (int): Number of samples per render.
+        train_render_dims (Tuple[int, int]): Training render resolution.
+        train_render_samples (int): Number of samples per training render.
+        check_render_dims (Tuple[int, int]): Checkpoint render resolution.
+        check_render_samples (int): Number of samples per checkpoint render.
+        check_frame_rate (int): Video render frame rate.
         output_path (Path): File output path.
         output_interval (int): Iterations between weight checkpoint.
         device (torch.device): Device of training.
@@ -50,8 +53,11 @@ class Config:
     focal_range: Tuple[float, float]
     radius_range: Tuple[float, float]
     sample_range: Tuple[float, float]
-    render_dims: Tuple[int, int]
-    render_samples: int
+    train_render_dims: Tuple[int, int]
+    train_render_samples: int
+    check_render_dims: Tuple[int, int]
+    check_render_samples: int
+    check_frame_rate: int
     output_path: Path
     output_interval: int
     device: torch.device
@@ -92,10 +98,10 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
     parser.add_argument("--prompt", type=str)
     parser.add_argument("--negative_prompt", type=str, default="")
     parser.add_argument("--guide", type=str, choices=GuideMap.keys(), default="IFGuide")
-    parser.add_argument("--iterations", type=int, default=1000)
-    parser.add_argument("--lr", type=float, default=0.01)
-    parser.add_argument("--eps", type=float, default=1e-8)
-    parser.add_argument("--weight_decay", type=float, default=0)
+    parser.add_argument("--iterations", type=int, default=10000)
+    parser.add_argument("--lr", type=float, default=2.5e-4)
+    parser.add_argument("--eps", type=float, default=1e-4)
+    parser.add_argument("--weight_decay", type=float, default=0.1)
     parser.add_argument("--guidance_scale", type=float, default=100)
     parser.add_argument("--t_range", type=float, nargs=2, default=[0.02, 0.98])
     parser.add_argument("--theta_range", type=float, nargs=2, default=[0, 360])
@@ -103,8 +109,11 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
     parser.add_argument("--focal_range", type=float, nargs=2, default=[0.7, 1.35])
     parser.add_argument("--radius_range", type=float, nargs=2, default=[4, 4.15])
     parser.add_argument("--sample_range", type=float, nargs=2, default=[2, 8])
-    parser.add_argument("--render_dims", type=int, nargs=2, default=[64, 64])
-    parser.add_argument("--render_samples", type=int, default=64)
+    parser.add_argument("--train_render_dims", type=int, nargs=2, default=[64, 64])
+    parser.add_argument("--train_render_samples", type=int, default=64)
+    parser.add_argument("--check_render_dims", type=int, nargs=2, default=[128, 128])
+    parser.add_argument("--check_render_samples", type=int, default=128)
+    parser.add_argument("--check_frame_rate", type=int, default=12)
     parser.add_argument("--output_path", type=str, default="output")
     parser.add_argument("--output_interval", type=int, default=250)
 
@@ -163,8 +172,11 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
         focal_range=tuple(args.focal_range),
         radius_range=tuple(args.radius_range),
         sample_range=tuple(args.sample_range),
-        render_dims=tuple(args.render_dims),
-        render_samples=args.render_samples,
+        train_render_dims=tuple(args.train_render_dims),
+        train_render_samples=args.train_render_samples,
+        check_render_dims=tuple(args.check_render_dims),
+        check_render_samples=args.check_render_samples,
+        check_frame_rate=args.check_frame_rate,
         output_path=Path(args.output_path),
         output_interval=args.output_interval,
         device=torch.device(args.device),

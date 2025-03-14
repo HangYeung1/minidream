@@ -2,7 +2,7 @@ prompt: An apple
 negative_prompt: cropped, out of frame, morbid, mutilated, bizarre, corrupted, malformed, low quality, artifacts, watermark, signature
 guide: IFGuide
 iterations: 30000
-lr: 3e-4
+lr: 2.5e-4
 eps: 1e-4
 weight_decay: 0.1
 guidance_scale: 100
@@ -12,8 +12,11 @@ phi_range: [0, 100]
 focal_range: [0.7, 1.35]
 radius_range: [4, 4.1]
 sample_range: [2, 8]
-render_dims: [64, 64]
-render_samples: 64
+train_render_dims: [64, 64]
+train_render_samples: 64
+check_render_dims: [128, 128]
+check_render_samples: 64
+check_frame_rate: 12
 output_path: output/apple
 output_interval: 250
 device: cuda
