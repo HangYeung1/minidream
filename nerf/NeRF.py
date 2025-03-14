@@ -1,51 +1,176 @@
+from typing import Tuple
+
+import cv2
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from .PositionalEncoder import PositionalEncoder
+from .NeRFNetwork import NeRFNetwork
 
 
 class NeRF(nn.Module):
-    def __init__(self, filter_size, encode_levels):
+    def __init__(
+        self,
+        dims: Tuple[int, int],
+        sample_range: Tuple[float, float],
+        num_samples: int,
+        device: torch.device,
+    ):
+        """Initialize rendering characteristics."""
+
         super().__init__()
 
-        encoded_dim = 2 * 3 * encode_levels + 3
-        self.encoder = PositionalEncoder(encode_levels)
-        self.layers1 = nn.ModuleList(
-            [
-                nn.Linear(encoded_dim, filter_size),
-                nn.Linear(filter_size, filter_size),
-                nn.Linear(filter_size, filter_size),
-                nn.Linear(filter_size, filter_size),
-            ]
+        self.dims = dims
+        self.sample_range = sample_range
+        self.num_samples = num_samples
+        self.device = device
+
+        self.network = NeRFNetwork().to(self.device)
+
+    @torch.no_grad()
+    def get_pose(
+        self,
+        theta_deg: float,
+        phi_deg: float,
+        radius: float,
+    ) -> torch.Tensor:
+        """Calculate OpenGL style camera pose."""
+
+        theta_rad = torch.deg2rad(torch.tensor(theta_deg))
+        phi_rad = torch.deg2rad(torch.tensor(phi_deg))
+
+        # Calculate position vector
+        x = radius * torch.sin(phi_rad) * torch.cos(theta_rad)
+        y = radius * torch.cos(phi_rad)
+        z = radius * torch.sin(phi_rad) * torch.sin(theta_rad)
+        position = torch.tensor([x, y, z])
+
+        # Calculate rotation matrix
+        forward = position
+        forward = forward / torch.norm(forward)
+        right = torch.linalg.cross(torch.tensor([0.0, 1.0, 0.0]), forward)
+        right = right / torch.norm(right)
+        up = torch.linalg.cross(forward, right)
+        rotation = torch.stack([right, up, forward], dim=1)
+
+        # Combine to pose
+        pose = torch.cat([rotation, position.unsqueeze(1)], dim=1)
+        return pose
+
+    @torch.no_grad()
+    def get_rays(
+        self, focal: float, pose: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get raymarching info."""
+
+        # Make pixel grid
+        x, y = torch.meshgrid(
+            torch.arange(self.dims[1], device=self.device),
+            torch.arange(self.dims[0], device=self.device),
+            indexing="xy",
         )
-        self.layers2 = nn.ModuleList(
-            [
-                nn.Linear(filter_size + encoded_dim, filter_size),
-                nn.Linear(filter_size, filter_size),
-                nn.Linear(filter_size, filter_size),
-            ]
+
+        # Calculate raymarch direction for each pixel
+        directions = (
+            torch.stack(
+                [
+                    (x - self.dims[1] / 2) / focal,
+                    -(y - self.dims[0] / 2) / focal,
+                    -torch.ones_like(x, device=self.device),
+                ],
+                dim=-1,
+            )
+            @ pose[:3, :3].T
         )
-        self.layers3 = nn.ModuleList(
-            [nn.Linear(filter_size + encoded_dim, filter_size)]
+        origin = pose[:3, -1]
+
+        return origin, directions
+
+    def render(
+        self, theta: float, phi: float, radius: float, focal: float
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+    ]:
+        """Render image given position."""
+
+        pose = self.get_pose(theta, phi, radius).to(self.device)
+
+        # Get random t's from intervals
+        bins = torch.linspace(
+            self.sample_range[0],
+            self.sample_range[1],
+            self.num_samples + 1,
+            device=self.device,
         )
-        self.output = nn.Linear(filter_size, 4)
+        bin_size = bins[1] - bins[0]
+        t = bins[:-1] + bin_size * torch.rand(
+            (self.dims[0], self.dims[1], self.num_samples),
+            device=self.device,
+        )
 
-    def forward(self, x):
-        x = x_encoded = self.encoder(x)
-        for layer in self.layers1:
-            x = F.relu(layer(x))
+        # Get point info from each ray
+        # Chunk to save memory
+        origin, directions = self.get_rays(focal, pose)
+        points = origin + directions.unsqueeze(-2) * t.unsqueeze(-1)
 
-        x = torch.cat([x, x_encoded], dim=-1)
-        for layer in self.layers2:
-            x = F.relu(layer(x))
+        num_chunks = int(points.numel() / (3 * 2**15))
+        points_chunks = points.view(-1, 3).chunk(num_chunks)
+        rgb_s_chunks = [self.network(chunk) for chunk in points_chunks]
+        rgb_s = torch.cat(rgb_s_chunks).view(
+            self.dims[0], self.dims[1], self.num_samples, 4
+        )
 
-        x = torch.cat([x, x_encoded], dim=-1)
-        for layer in self.layers3:
-            x = F.relu(layer(x))
+        rgb = rgb_s[..., :3]
+        sigmas = rgb_s[..., -1]
 
-        x = self.output(x)
-        x[..., :3] = F.sigmoid(x[..., :3])
-        x[..., -1] = F.relu(x[..., -1])
+        # Calculate attenuation at each point
+        inf = 1e9
+        deltas = torch.cat(
+            (
+                t[..., 1:] - t[..., :-1],
+                torch.full_like(t[..., :1], inf, device=self.device),
+            ),
+            dim=-1,
+        )
+        sig_dels = torch.exp(-sigmas * deltas)
+        alpha = 1.0 - sig_dels
 
-        return x
+        eps = 1e-9
+        transmits_off = torch.cumprod((sig_dels + eps), -1)
+        transmits = torch.roll(transmits_off, 1, -1)
+        transmits[..., 0] = 1.0
+        weights = alpha * transmits
+
+        # Weigh color/depth contribution
+        rgb_matrix = torch.clip(torch.sum(weights.unsqueeze(-1) * rgb, dim=-2), max=1.0)
+        depth_matrix = torch.sum(weights * t, dim=-1)
+
+        return rgb_matrix, depth_matrix
+
+    @torch.no_grad()
+    def render_video(
+        self,
+        output_path: str,
+        frame_rate: int,
+        radius: float,
+        focal: float,
+    ) -> None:
+        """Save 360 video of nerf."""
+        out = cv2.VideoWriter(
+            output_path,
+            cv2.VideoWriter_fourcc(*"H264"),
+            frame_rate,
+            self.dims,
+        )
+
+        for i in range(0, 360, int(360 // (frame_rate / 5))):
+            rgb, _ = self.render(i, 75, radius, focal)
+            out.write(
+                cv2.cvtColor(
+                    (rgb * 255).cpu().numpy().astype(np.uint8),
+                    cv2.COLOR_RGB2BGR,
+                )
+            )
+
+        out.release()
