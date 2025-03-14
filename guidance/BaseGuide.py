@@ -11,6 +11,7 @@ class BaseGuide(nn.Module, ABC):
     """Diffusion guidance wrapper base class.
 
     Attributes:
+        embeds (dict[str, torch.Tensor]): Dictionary of text embeddings.
         min_step (int): Minimum diffusion timestep.
         max_step (int): Maximum diffusion timestep.
         train_shape (Tuple[int, int, int]): Training tensor shape.
@@ -25,6 +26,8 @@ class BaseGuide(nn.Module, ABC):
     def __init__(
         self,
         *,
+        prompt: str,
+        negative_prompt: str,
         t_range: Tuple[float, float],
         guidance_scale: float,
         train_shape: Tuple[int, int, int],
@@ -65,15 +68,24 @@ class BaseGuide(nn.Module, ABC):
         step_range = [int(t * num_train_steps) for t in t_range]
         self.min_step, self.max_step = step_range
 
+        # Make prompt embeddings
+        self.embeds = {
+            "top": self.encode_text("overhead view of " + prompt),
+            "front": self.encode_text("front view of " + prompt),
+            "side": self.encode_text("side view of " + prompt),
+            "back": self.encode_text("back view of " + prompt),
+            "neg": self.encode_text(negative_prompt),
+        }
+
     def calculate_sds_loss(
-        self, training: torch.Tensor, pos_embeds: torch.Tensor, neg_embeds: torch.Tensor
+        self, training: torch.Tensor, theta: float, phi: float
     ) -> torch.Tensor:
         """Calculate score distillation sampling loss.
 
         Arguments:
             training: Training tensor of shape (N, *self.train_shape).
-            pos_embeds: Target text embedding tensor.
-            neg_embeds: Avoidance text embedding tensor.
+            theta: Render azimuth.
+            phi: Render zenith.
 
         Returns:
             SDS loss tensor of shape (N,).
@@ -87,9 +99,19 @@ class BaseGuide(nn.Module, ABC):
         noise = torch.randn_like(training, device=self.device)
         train_noisy = self.scheduler.add_noise(training, noise, timesteps)
 
+        # Get positionally modulated prompts
+        if phi < 60:
+            pos_embeds = self.embeds["top"]
+        elif theta <= 45 and theta > 315:
+            pos_embeds = self.embeds["front"]
+        elif theta > 135 and theta < 225:
+            pos_embeds = self.embeds["side"]
+        else:
+            pos_embeds = self.embeds["back"]
+
         # Calculate loss via reparameterization
         noise_pred = self.predict_cfg_noise(
-            train_noisy, timesteps, pos_embeds, neg_embeds
+            train_noisy, timesteps, pos_embeds, self.embeds["neg"]
         )
         weight = 1 - self.alphas[timesteps].view(-1, 1, 1, 1).expand(
             -1, *self.train_shape
@@ -118,7 +140,7 @@ class BaseGuide(nn.Module, ABC):
         """
         pass
 
-    @torch.no_grad
+    @torch.no_grad()
     def predict_cfg_noise(
         self,
         train_noisy: torch.Tensor,
@@ -160,7 +182,7 @@ class BaseGuide(nn.Module, ABC):
 
         return noise_pred
 
-    @torch.no_grad
+    @torch.no_grad()
     def encode_text(self, text: str) -> torch.Tensor:
         """Embed text.
 

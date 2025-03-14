@@ -25,6 +25,8 @@ class StableGuide(BaseGuide):
 
     def __init__(
         self,
+        prompt: str,
+        negative_prompt: str,
         t_range: Tuple[float, float],
         guidance_scale: float,
         device: torch.device,
@@ -43,6 +45,8 @@ class StableGuide(BaseGuide):
         ).to(device)
 
         super().__init__(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
             t_range=t_range,
             guidance_scale=guidance_scale,
             train_shape=(4, 64, 64),
@@ -56,7 +60,7 @@ class StableGuide(BaseGuide):
         self.unet = sd.unet
         self.vae = sd.vae
 
-    @torch.no_grad
+    @torch.no_grad()
     def predict_noise(
         self,
         train_noisy: torch.Tensor,
@@ -75,7 +79,7 @@ class StableGuide(BaseGuide):
         """
         return self.unet(train_noisy, timesteps, encoder_hidden_states=embeds).sample
 
-    @torch.no_grad
+    @torch.no_grad()
     def decode_train(self, training: torch.Tensor) -> torch.Tensor:
         """Convert training tensor to images tensor.
 

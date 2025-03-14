@@ -24,6 +24,8 @@ class IFGuide(BaseGuide):
 
     def __init__(
         self,
+        prompt: str,
+        negative_prompt: str,
         t_range: Tuple[float, float],
         guidance_scale: float,
         device: torch.device,
@@ -32,6 +34,8 @@ class IFGuide(BaseGuide):
         """Initialize guidance components from DeepFloyd IF.
 
         Arguments:
+            prompt: Guiding prompt.
+            negative_prompt: Negative prompt.
             t_range: Diffusion time interval.
             guidance_scale: Classifier-free guidance weight.
             device: Device of guidance.
@@ -42,6 +46,8 @@ class IFGuide(BaseGuide):
         ).to(device)
 
         super().__init__(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
             t_range=t_range,
             guidance_scale=guidance_scale,
             train_shape=(3, 64, 64),
@@ -54,7 +60,7 @@ class IFGuide(BaseGuide):
 
         self.unet = if_.unet
 
-    @torch.no_grad
+    @torch.no_grad()
     def predict_noise(
         self,
         train_noisy: torch.Tensor,
@@ -75,7 +81,7 @@ class IFGuide(BaseGuide):
             :, :3
         ]
 
-    @torch.no_grad
+    @torch.no_grad()
     def decode_train(self, training: torch.Tensor) -> torch.Tensor:
         """Convert training tensor to images tensor.
 
