@@ -89,7 +89,7 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
     # Make parser
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--prompt", type=str, required=True)
+    parser.add_argument("--prompt", type=str)
     parser.add_argument("--negative_prompt", type=str, default="")
     parser.add_argument("--guide", type=str, choices=GuideList, default="IFGuide")
     parser.add_argument("--iterations", type=int, default=1000)
@@ -101,7 +101,7 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
     parser.add_argument("--theta_range", type=float, nargs=2, default=[0, 360])
     parser.add_argument("--phi_range", type=float, nargs=2, default=[0, 100])
     parser.add_argument("--focal_range", type=float, nargs=2, default=[0.7, 1.35])
-    parser.add_argument("--radius_range", type=float, default=[4, 4.15])
+    parser.add_argument("--radius_range", type=float, nargs=2, default=[4, 4.15])
     parser.add_argument("--sample_range", type=float, nargs=2, default=[2, 8])
     parser.add_argument("--render_dims", type=int, nargs=2, default=[64, 64])
     parser.add_argument("--render_samples", type=int, default=64)
@@ -128,12 +128,14 @@ def parse_args(arg_list: None | List[str] = None) -> Config:
     if args.yaml:
         yaml_arg_list = yaml_to_args(args.yaml)
         args = parser.parse_args(args=yaml_arg_list)
+    if not args.prompt:
+        raise argparse.ArgumentTypeError("Prompt must be provided.")
 
     # Make save directories
     output_path = Path(args.output_path)
-    output_path.mkdir(parents=True)
-    (output_path / "weights").mkdir()
-    (output_path / "images").mkdir()
+    output_path.mkdir(parents=True, exist_ok=True)
+    (output_path / "weights").mkdir(exist_ok=True)
+    (output_path / "images").mkdir(exist_ok=True)
 
     # Dump config to yaml
     with open(output_path / "config.yaml", "w") as file:
