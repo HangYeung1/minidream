@@ -25,7 +25,7 @@ def train3d(config: Config):
         config.sample_range,
         config.render_samples,
         config.device,
-        config.dtype,  # TODO: check decay
+        torch.float32,  # TODO: add to config
     )
     guide = config.guide(
         prompt=config.prompt,
@@ -42,15 +42,20 @@ def train3d(config: Config):
         weight_decay=config.weight_decay,
     )
 
-    for i in tqdm(range(config.iterations), "Training model..."):
+    for i in tqdm(range(1, config.iterations + 1), "Training model..."):
         # Render random image
-        theta = sample_from_range(config.theta_range)
-        phi = sample_from_range(config.phi_range)
+        theta = sample_from_range(config.theta_range).item()
+        phi = sample_from_range(config.phi_range).item()
         focal = (sample_from_range(config.focal_range) * config.render_dims[1]).item()
         radius = sample_from_range(config.radius_range).item()
 
         pose = renderer.get_pose(theta, phi, radius).to(config.device)
-        rgb = renderer.render(nerf, pose, focal)[0].permute(2, 0, 1).unsqueeze(0)
+        rgb = (
+            renderer.render(nerf, pose, focal)[0]
+            .permute(2, 0, 1)
+            .unsqueeze(0)
+            .to(config.dtype)
+        )
 
         # Optimize representation
         optimizer.zero_grad()
@@ -59,7 +64,7 @@ def train3d(config: Config):
         optimizer.step()
 
         # Save weights and images
-        if i % config.output_interval == 0 or i == config.iterations - 1:
+        if i % config.output_interval == 0 or i == config.iterations:
             torch.save(nerf.state_dict(), config.output_path / "weights" / f"{i}.pth")
             with torch.no_grad():
                 test_rgb, test_depth = renderer.render(
