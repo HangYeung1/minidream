@@ -1,4 +1,4 @@
-prompt: An apple
+prompt: A pineapple
 negative_prompt: cropped, out of frame, morbid, mutilated, bizarre, corrupted, malformed, low quality, artifacts, watermark, signature
 guide: IFGuide
 iterations: 50000
@@ -17,7 +17,7 @@ train_render_samples: 64
 check_render_dims: [128, 128]
 check_render_samples: 64
 check_frame_rate: 12
-output_path: output/apple
+output_path: output/pineapple
 output_interval: 250
 device: cuda
 dtype: float16
