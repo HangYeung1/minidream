@@ -13,7 +13,6 @@ class BaseGuide(nn.Module, ABC):
     Attributes:
         embeds (dict[str, torch.Tensor]): Dictionary of text embeddings.
         t_range (Tuple[float, float]): Diffusion t-range range.
-        train_shape (Tuple[int, int, int]): Training tensor shape.
         guidance_scale (float): Classifier-free guidance weight.
         tokenizer (PreTrainedTokenizer): Diffuser's Tokenizer.
         text_encoder (PreTrainedModel): Diffuser's text encoder.
@@ -29,7 +28,6 @@ class BaseGuide(nn.Module, ABC):
         negative_prompt: str,
         t_range: Tuple[float, float],
         guidance_scale: float,
-        train_shape: Tuple[int, int, int],
         tokenizer: PreTrainedTokenizer,
         text_encoder: PreTrainedModel,
         scheduler: SchedulerMixin,
@@ -41,7 +39,6 @@ class BaseGuide(nn.Module, ABC):
         Arguments:
             t_range: Diffusion time interval.
             guidance_scale: Classifier-free guidance weight.
-            train_shape: Training tensor shape.
             tokenizer: Diffuser's Tokenizer.
             text_encoder: Diffuser's text encoder.
             scheduler: Diffuser's scheduler.
@@ -56,7 +53,6 @@ class BaseGuide(nn.Module, ABC):
 
         self.t_range = t_range
         self.guidance_scale = guidance_scale
-        self.train_shape = train_shape
 
         # Set diffusion components
         self.tokenizer = tokenizer
@@ -74,19 +70,19 @@ class BaseGuide(nn.Module, ABC):
         }
 
     def calculate_sds_loss(
-        self, training: torch.Tensor, theta: float, phi: float
+        self, render: torch.Tensor, theta: float, phi: float
     ) -> torch.Tensor:
         """Calculate score distillation sampling loss.
 
         Arguments:
-            training: Training tensor of shape (N, *self.train_shape).
+            render: Render tensor of shape (N, *render_shape).
             theta: Render azimuth.
             phi: Render zenith.
 
         Returns:
             SDS loss tensor of shape (N,).
         """
-        N, _, _, _ = training.shape
+        N, _, _, _ = render.shape
 
         # Add noise
         timesteps = (
@@ -97,8 +93,8 @@ class BaseGuide(nn.Module, ABC):
             )
             * self.scheduler.config.num_train_timesteps
         ).to(torch.int)
-        noise = torch.randn_like(training, device=self.device)
-        train_noisy = self.scheduler.add_noise(training, noise, timesteps)
+        noise = torch.randn_like(render, device=self.device)
+        render_noisy = self.scheduler.add_noise(render, noise, timesteps)
 
         # Get positionally modulated prompts
         if phi < 60:
@@ -112,39 +108,39 @@ class BaseGuide(nn.Module, ABC):
 
         # Calculate loss via reparameterization
         noise_pred = self.predict_cfg_noise(
-            train_noisy, timesteps, pos_embeds, self.embeds["neg"]
+            render_noisy, timesteps, pos_embeds, self.embeds["neg"]
         )
         weight = 1 - self.alphas[timesteps].view(-1, 1, 1, 1).expand(
-            -1, *self.train_shape
+            -1, *render.shape[1:]
         )
         gradient = weight * (noise_pred - noise)
-        sds_loss = (gradient * training).sum()
+        sds_loss = (gradient * render).sum()
 
         return sds_loss
 
     @abstractmethod
     def predict_noise(
         self,
-        train_noisy: torch.Tensor,
+        render_noisy: torch.Tensor,
         timesteps: torch.Tensor,
         embeds: torch.Tensor,
     ) -> torch.Tensor:
         """Abstract. Get noise prediction.
 
         Arguments:
-            training: Training tensor of shape (N, *self.train_shape).
+            render: Render tensor of shape (N, *render_shape).
             timesteps: Timestep tensor of shape (N,).
             embeds: Text embedding tensor.
 
         Returns:
-            Noise prediction tensor of shape (N, *self.train_shape).
+            Noise prediction tensor of shape (N, *render_shape).
         """
         pass
 
     @torch.no_grad()
     def predict_cfg_noise(
         self,
-        train_noisy: torch.Tensor,
+        render_noisy: torch.Tensor,
         timesteps: torch.Tensor,
         pos_embeds: torch.Tensor,
         neg_embeds: torch.Tensor,
@@ -152,18 +148,18 @@ class BaseGuide(nn.Module, ABC):
         """Calculate classifier-free noise.
 
         Arguments:
-            train_noisy: Noisy training tensor of shape (N, *self.train_shape).
+            render_noisy: Noisy render tensor of shape (N, *render_shape).
             timesteps: Timestep tensor of shape (N,).
             pos_embeds: Target text embedding tensor.
             neg_embeds: Avoidance text embedding tensor.
 
         Returns:
-            Predicted noise tensor of shape (N, *self.train_shape).
+            Predicted noise tensor of shape (N, *render_shape).
         """
-        N, _, _, _ = train_noisy.shape
+        N, _, _, _ = render_noisy.shape
 
         # Predict positive and negative noise
-        train_comb = torch.cat([train_noisy] * 2, dim=0)
+        render_comb = torch.cat([render_noisy] * 2, dim=0)
         timesteps_comb = torch.cat([timesteps] * 2, dim=0)
         embeds_comb = torch.cat(
             [
@@ -173,7 +169,7 @@ class BaseGuide(nn.Module, ABC):
             dim=0,
         )
 
-        noise_pred_comb = self.predict_noise(train_comb, timesteps_comb, embeds_comb)
+        noise_pred_comb = self.predict_noise(render_comb, timesteps_comb, embeds_comb)
         noise_pred_pos, noise_pred_neg = noise_pred_comb.chunk(2)
 
         # Calculate classifier-free noise
@@ -203,11 +199,11 @@ class BaseGuide(nn.Module, ABC):
         return text_embeds
 
     @abstractmethod
-    def decode_train(self, training: torch.Tensor) -> torch.Tensor:
-        """Abstract. Convert training tensor to images tensor.
+    def decode_train(self, render: torch.Tensor) -> torch.Tensor:
+        """Abstract. Convert render tensor to images tensor.
 
         Arguments:
-            training: Training tensor of shape (N, *train_shape)
+            render: Render tensor of shape (N, *render_shape)
 
         Returns:
             Images tensor.

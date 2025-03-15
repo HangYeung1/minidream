@@ -50,7 +50,6 @@ class IFGuide(BaseGuide):
             negative_prompt=negative_prompt,
             t_range=t_range,
             guidance_scale=guidance_scale,
-            train_shape=(3, 64, 64),
             tokenizer=if_.tokenizer,
             text_encoder=if_.text_encoder,
             scheduler=if_.scheduler,
@@ -70,12 +69,12 @@ class IFGuide(BaseGuide):
         """Get noise prediction.
 
         Arguments:
-            training: Training tensor of shape (N, *self.train_shape).
+            training: Training tensor of shape (N, *render_shape).
             timesteps: Timestep tensor of shape (N,).
             embeds: Text embedding tensor.
 
         Returns:
-            Noise prediction tensor of shape (N, *self.train_shape).
+            Noise prediction tensor of shape (N, *render_shape).
         """
         return self.unet(train_noisy, timesteps, encoder_hidden_states=embeds).sample[
             :, :3
@@ -86,7 +85,7 @@ class IFGuide(BaseGuide):
         """Convert training tensor to images tensor.
 
         Arguments:
-            training: Training tensor of shape (N, *train_shape).
+            training: Training tensor of shape (N, *render_shape).
 
         Returns:
             Images tensor.

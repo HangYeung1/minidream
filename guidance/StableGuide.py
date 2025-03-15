@@ -49,7 +49,6 @@ class StableGuide(BaseGuide):
             negative_prompt=negative_prompt,
             t_range=t_range,
             guidance_scale=guidance_scale,
-            train_shape=(4, 64, 64),
             tokenizer=sd.tokenizer,
             text_encoder=sd.text_encoder,
             scheduler=sd.scheduler,
@@ -60,36 +59,51 @@ class StableGuide(BaseGuide):
         self.unet = sd.unet
         self.vae = sd.vae
 
+    def calculate_sds_loss(
+        self, training: torch.Tensor, theta: float, phi: float
+    ) -> torch.Tensor:
+        """Calculate score distillation sampling loss.
+
+        Arguments:
+            training: Training tensor of shape (N, *render_shape).
+            theta: Render azimuth.
+            phi: Render zenith.
+
+        Returns:
+            SDS loss tensor of shape (N,).
+        """
+        return super().calculate_sds_loss(self.encode_images(training), theta, phi)
+
     @torch.no_grad()
     def predict_noise(
         self,
-        train_noisy: torch.Tensor,
+        render_noisy: torch.Tensor,
         timesteps: torch.Tensor,
         embeds: torch.Tensor,
     ) -> torch.Tensor:
         """Get noise prediction.
 
         Arguments:
-            training: Training tensor of shape (N, *self.train_shape).
+            render_noisy: Training tensor of shape (N, *render_shape).
             timesteps: Timestep tensor of shape (N,).
             embeds: Text embedding tensor.
 
         Returns:
-            Noise prediction tensor of shape (N, *self.train_shape).
+            Noise prediction tensor of shape (N, *render_shape).
         """
-        return self.unet(train_noisy, timesteps, encoder_hidden_states=embeds).sample
+        return self.unet(render_noisy, timesteps, encoder_hidden_states=embeds).sample
 
     @torch.no_grad()
-    def decode_train(self, training: torch.Tensor) -> torch.Tensor:
-        """Convert training tensor to images tensor.
+    def decode_train(self, render: torch.Tensor) -> torch.Tensor:
+        """Convert render tensor to images tensor.
 
         Arguments:
-            training: Training tensor of shape (N, *train_shape).
+            render: Render tensor of shape (N, *render_shape).
 
         Returns:
             Images tensor.
         """
-        train_scaled = training / self.vae.config.scaling_factor
+        train_scaled = render / self.vae.config.scaling_factor
         vae_out = self.vae.decode(train_scaled).sample
         images = (vae_out / 2 + 0.5).clamp(0, 1)
         return images
@@ -101,7 +115,7 @@ class StableGuide(BaseGuide):
             images: Images tensor.
 
         Returns:
-            Training tensor of shape (N, *train_shape).
+            Training tensor of shape (N, *render_shape).
         """
         images_scaled = images * 2 - 1
         vae_out = self.vae.encode(images_scaled).latent_dist.sample()
